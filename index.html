@@ -157,6 +157,15 @@
     Android <b>Chrome</b>에서 <b>HTTPS 주소</b>로 열어야 합니다. (iOS Safari 미지원)
   </div>
 
+  <div class="card" id="recover" style="display:none">
+    <div class="row">
+      <span style="font-size:13.5px">💾 저장 안 된 이전 기록 <b id="recoverInfo"></b>이 남아 있습니다.</span>
+      <span class="spacer"></span>
+      <button id="btnRecoverDl">다운로드</button>
+      <button id="btnRecoverDrop">버리기</button>
+    </div>
+  </div>
+
   <div class="tiles" id="tiles">
     <div class="tile"><div class="lbl">Time</div><div class="val" id="vTime" style="font-size:15px">–</div></div>
   </div>
@@ -340,6 +349,7 @@ function handleLine(line) {
   if (recording) {
     recRows.push([now.getTime() / 1000, now.toISOString(), ...recCols.map(k => s[k])].join(","));
     $("recState").textContent = "● REC " + fmtDur((now - recStart) / 1000) + " · " + recRows.length + "행";
+    persistBackup(false);
   }
   drawAll();
   refreshTable();
@@ -483,12 +493,38 @@ function refreshTable() {
 }
 
 // ---------- CSV 기록 ----------
+// 유실 방지 3중 장치: ① 기록 중 5초마다 localStorage 백업 ② 재접속 시 복구 배너
+// ③ 기록 중지 시 자동 다운로드 + 기록 중 탭 닫기 경고
+const BK_KEY = "ntcRecBackup";
+let lastPersist = 0;
+
+function persistBackup(force) {
+  const now = Date.now();
+  if (!force && now - lastPersist < 5000) return;
+  lastPersist = now;
+  try {
+    localStorage.setItem(BK_KEY, JSON.stringify({ start: recStart.toISOString(), csv: recRows.join("\n") }));
+  } catch (e) {
+    addLog("err", "자동 백업 실패 (저장공간 한도): " + e.message);
+  }
+}
+function clearBackup() { try { localStorage.removeItem(BK_KEY); } catch (e) {} }
+
+function downloadCsv(csvText, startIso) {
+  const name = "ntc_log_" + startIso.replace(/[:T]/g, "-").slice(0, 19) + ".csv";
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([csvText], { type: "text/csv" }));
+  a.download = name; a.click();
+  URL.revokeObjectURL(a.href);
+}
+
 $("btnRec").addEventListener("click", () => recording ? stopRec() : startRec());
 function startRec() {
   if (!mode) { addLog("err", "아직 데이터가 없습니다."); return; }
   recCols = [...activeP, ...activeT].map(d => d.key);
   recRows = ["epoch,iso8601," + recCols.join(",")];
   recStart = new Date(); recording = true;
+  persistBackup(true);
   $("btnRec").textContent = "■ 기록 중지";
   $("btnDl").disabled = true;
   $("recState").className = "rec";
@@ -498,15 +534,43 @@ function stopRec() {
   $("btnRec").textContent = "● 기록 시작";
   $("btnDl").disabled = recRows.length <= 1;
   $("recState").className = "";
-  $("recState").textContent = "기록 " + (recRows.length - 1) + "행 — 다운로드 가능";
+  if (recRows.length > 1) {
+    downloadCsv(recRows.join("\n"), recStart.toISOString());   // 자동 다운로드
+    clearBackup();
+    $("recState").textContent = "기록 " + (recRows.length - 1) + "행 — 자동 다운로드됨";
+  } else {
+    clearBackup();
+    $("recState").textContent = "";
+  }
 }
 $("btnDl").addEventListener("click", () => {
-  const name = "ntc_log_" + recStart.toISOString().replace(/[:T]/g, "-").slice(0, 19) + ".csv";
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(new Blob([recRows.join("\n")], { type: "text/csv" }));
-  a.download = name; a.click();
-  URL.revokeObjectURL(a.href);
+  downloadCsv(recRows.join("\n"), recStart.toISOString());
+  clearBackup();
 });
+
+// 기록 중 탭을 닫거나 새로고침하면 경고
+window.addEventListener("beforeunload", e => {
+  if (recording) { persistBackup(true); e.preventDefault(); e.returnValue = ""; }
+});
+
+// 페이지 로드 시 저장 안 된 백업 복구 제안
+(function checkBackup() {
+  let bk = null;
+  try { bk = JSON.parse(localStorage.getItem(BK_KEY) || "null"); } catch (e) {}
+  if (!bk || !bk.csv || bk.csv.indexOf("\n") < 0) { clearBackup(); return; }
+  const n = bk.csv.split("\n").length - 1;
+  $("recoverInfo").textContent = n + "행 (" + bk.start.slice(0, 16).replace("T", " ") + " 시작)";
+  $("recover").style.display = "";
+  $("btnRecoverDl").addEventListener("click", () => {
+    downloadCsv(bk.csv, bk.start);
+    clearBackup();
+    $("recover").style.display = "none";
+  });
+  $("btnRecoverDrop").addEventListener("click", () => {
+    clearBackup();
+    $("recover").style.display = "none";
+  });
+})();
 function fmtDur(sec) {
   sec = Math.floor(sec);
   const m = Math.floor(sec / 60), s = sec % 60;

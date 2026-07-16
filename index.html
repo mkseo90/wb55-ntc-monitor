@@ -1,0 +1,531 @@
+<!doctype html>
+<html lang="ko">
+<meta charset="utf-8">
+<title>WB55 NTC BLE 모니터</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {
+    color-scheme: light;
+    --page:        #f9f9f7;
+    --surface:     #fcfcfb;
+    --ink:         #0b0b0b;
+    --ink-2:       #52514e;
+    --muted:       #898781;
+    --grid:        #e1e0d9;
+    --axis:        #c3c2b7;
+    --ring:        rgba(11,11,11,0.10);
+    --good:        #0ca30c;
+    --critical:    #d03b3b;
+    --s1: #2a78d6; --s2: #1baf7a; --s3: #eda100; --s4: #008300;
+    --s6: #e34948; --s7: #e87ba4; --s8: #eb6834;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --page:    #0d0d0d;
+      --surface: #1a1a19;
+      --ink:     #ffffff;
+      --ink-2:   #c3c2b7;
+      --muted:   #898781;
+      --grid:    #2c2c2a;
+      --axis:    #383835;
+      --ring:    rgba(255,255,255,0.10);
+      --s1: #3987e5; --s2: #199e70; --s3: #c98500; --s4: #008300;
+      --s6: #e66767; --s7: #d55181; --s8: #d95926;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --page:    #0d0d0d;
+    --surface: #1a1a19;
+    --ink:     #ffffff;
+    --ink-2:   #c3c2b7;
+    --muted:   #898781;
+    --grid:    #2c2c2a;
+    --axis:    #383835;
+    --ring:    rgba(255,255,255,0.10);
+    --s1: #3987e5; --s2: #199e70; --s3: #c98500; --s4: #008300;
+    --s6: #e66767; --s7: #d55181; --s8: #d95926;
+  }
+  :root[data-theme="light"] {
+    color-scheme: light;
+    --page:    #f9f9f7;
+    --surface: #fcfcfb;
+    --ink:     #0b0b0b;
+    --ink-2:   #52514e;
+    --muted:   #898781;
+    --grid:    #e1e0d9;
+    --axis:    #c3c2b7;
+    --ring:    rgba(11,11,11,0.10);
+    --s1: #2a78d6; --s2: #1baf7a; --s3: #eda100; --s4: #008300;
+    --s6: #e34948; --s7: #e87ba4; --s8: #eb6834;
+  }
+
+  body {
+    background: var(--page);
+    color: var(--ink);
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    margin: 0;
+    padding: 12px;
+  }
+  .wrap { max-width: 760px; margin: 0 auto; display: flex; flex-direction: column; gap: 12px; }
+
+  header { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  header h1 { font-size: 17px; font-weight: 700; margin: 0; letter-spacing: -0.01em; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); flex: none; }
+  .dot.on { background: var(--good); }
+  #status { font-size: 12.5px; color: var(--ink-2); flex: 1 1 auto; min-width: 120px; }
+
+  button {
+    font: inherit; font-size: 13.5px; font-weight: 600;
+    color: var(--ink);
+    background: var(--surface);
+    border: 1px solid var(--ring);
+    border-radius: 8px;
+    padding: 8px 14px;
+    cursor: pointer;
+  }
+  button:disabled { opacity: 0.45; cursor: default; }
+  button.primary { background: var(--s1); border-color: transparent; color: #fff; }
+  button:focus-visible { outline: 2px solid var(--s1); outline-offset: 2px; }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--ring);
+    border-radius: 10px;
+    padding: 12px;
+  }
+
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 8px; }
+  .tile { background: var(--surface); border: 1px solid var(--ring); border-radius: 10px; padding: 8px 10px; }
+  .tile .lbl { font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--ink-2); display: flex; align-items: center; gap: 5px; }
+  .tile .chip { width: 8px; height: 8px; border-radius: 2px; flex: none; }
+  .tile .val { font-size: 21px; font-weight: 700; margin-top: 2px; }
+  .tile .val small { font-size: 12px; font-weight: 500; color: var(--ink-2); }
+
+  .chart-card h2 { font-size: 13px; font-weight: 600; color: var(--ink-2); margin: 0 0 6px; }
+  .chart-box { position: relative; }
+  canvas { display: block; width: 100%; height: 190px; touch-action: pan-y; }
+  .tip {
+    position: absolute; pointer-events: none; display: none;
+    background: var(--surface); border: 1px solid var(--ring); border-radius: 8px;
+    padding: 6px 9px; font-size: 12px; line-height: 1.5;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.18); white-space: nowrap; z-index: 5;
+  }
+  .tip .t { color: var(--ink-2); font-variant-numeric: tabular-nums; }
+  .tip .row { display: flex; align-items: center; gap: 6px; font-variant-numeric: tabular-nums; }
+  .tip .chip { width: 8px; height: 8px; border-radius: 2px; }
+
+  .legend { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 6px; font-size: 12px; color: var(--ink-2); }
+  .legend .item { display: flex; align-items: center; gap: 5px; }
+  .legend .chip { width: 10px; height: 3px; border-radius: 2px; }
+
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .row .spacer { flex: 1; }
+  #recState { font-size: 12.5px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+  #recState.rec { color: var(--critical); font-weight: 600; }
+
+  details summary { cursor: pointer; font-size: 13px; color: var(--ink-2); user-select: none; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 8px; font-variant-numeric: tabular-nums; }
+  th, td { text-align: right; padding: 4px 8px; border-bottom: 1px solid var(--grid); }
+  th:first-child, td:first-child { text-align: left; }
+  th { color: var(--ink-2); font-weight: 600; }
+
+  #log {
+    font-family: Consolas, "Cascadia Mono", monospace; font-size: 11px; line-height: 1.55;
+    max-height: 160px; overflow-y: auto; overflow-x: auto;
+    background: var(--page); border: 1px solid var(--ring); border-radius: 8px;
+    padding: 8px; white-space: pre; margin-top: 8px;
+  }
+  #log .tx { color: var(--s1); } #log .rx { color: var(--s2); }
+  #log .err { color: var(--critical); } #log .ts { color: var(--muted); }
+  label.chk { font-size: 12.5px; color: var(--ink-2); display: inline-flex; align-items: center; gap: 5px; }
+
+  #noble { display: none; border-left: 3px solid var(--critical); padding-left: 10px; font-size: 13.5px; line-height: 1.6; }
+</style>
+
+<div class="wrap">
+  <header>
+    <span class="dot" id="dot"></span>
+    <h1>WB55 NTC 모니터</h1>
+    <span id="status">연결 안 됨</span>
+    <button class="primary" id="btnConnect">BLE 연결</button>
+  </header>
+
+  <div class="card" id="noble">
+    이 브라우저에서는 Web Bluetooth를 쓸 수 없습니다.<br>
+    Android <b>Chrome</b>에서 <b>HTTPS 주소</b>로 열어야 합니다. (iOS Safari 미지원)
+  </div>
+
+  <div class="tiles" id="tiles">
+    <div class="tile"><div class="lbl">Time</div><div class="val" id="vTime" style="font-size:15px">–</div></div>
+  </div>
+
+  <div class="card chart-card" id="tempCard" style="display:none">
+    <h2>온도 (°C)</h2>
+    <div class="chart-box">
+      <canvas id="cvT"></canvas>
+      <div class="tip" id="tipT"></div>
+    </div>
+    <div class="legend" id="legT"></div>
+  </div>
+
+  <div class="card chart-card" id="presCard" style="display:none">
+    <h2>압력 (ADC raw)</h2>
+    <div class="chart-box">
+      <canvas id="cvP"></canvas>
+      <div class="tip" id="tipP"></div>
+    </div>
+    <div class="legend" id="legP"></div>
+  </div>
+
+  <div class="card">
+    <div class="row">
+      <button id="btnRec" disabled>● 기록 시작</button>
+      <button id="btnDl" disabled>CSV 다운로드</button>
+      <button id="btnPing" disabled>PING</button>
+      <span class="spacer"></span>
+      <span id="recState"></span>
+    </div>
+    <details style="margin-top:10px">
+      <summary>최근 데이터 표 보기</summary>
+      <div style="overflow-x:auto"><table id="tbl"><thead></thead><tbody></tbody></table></div>
+    </details>
+    <details style="margin-top:8px">
+      <summary>통신 로그</summary>
+      <div class="row" style="margin-top:8px">
+        <label class="chk"><input type="checkbox" id="chkData"> DATA 프레임 포함</label>
+        <span class="spacer"></span>
+        <button id="btnClr" style="padding:4px 10px;font-size:12px">Clear</button>
+      </div>
+      <div id="log"></div>
+    </details>
+  </div>
+</div>
+
+<script>
+"use strict";
+const NUS_SVC = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
+const NUS_RX  = "6e400002-b5a3-f393-e0a9-e50e24dcca9e"; // 앱 → 보드 (write)
+const NUS_TX  = "6e400003-b5a3-f393-e0a9-e50e24dcca9e"; // 보드 → 앱 (notify)
+const BUFFER  = 600;   // 차트 보관 샘플 수 (~10분 @1Hz)
+
+// 센서 정의 — 색은 엔티티에 고정 (categorical slot, 순서 고정)
+const NTC_DEFS  = [
+  { key:"T1", label:"NTC1", cssVar:"--s1" },
+  { key:"T2", label:"NTC2", cssVar:"--s2" },
+  { key:"T3", label:"NTC3", cssVar:"--s3" },
+  { key:"T4", label:"NTC4", cssVar:"--s4" },
+];
+const PRES_DEFS = [
+  { key:"P1", label:"P1", cssVar:"--s6" },
+  { key:"P2", label:"P2", cssVar:"--s7" },
+  { key:"P3", label:"P3", cssVar:"--s8" },
+];
+
+let device = null, rxChar = null, txChar = null;
+let lineBuf = "";
+let mode = null;              // "ntc3" | "full7"
+let activeT = [], activeP = [];
+let samples = [];             // {t:Date, T1..T4?, P1..P3?}
+let recording = false, recRows = [], recCols = [], recStart = null;
+
+const $ = id => document.getElementById(id);
+const cssColor = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+
+if (!navigator.bluetooth) { $("noble").style.display = "block"; $("btnConnect").disabled = true; }
+
+// ---------- 프로토콜 ----------
+function xorCs(s) { let c = 0; for (let i = 0; i < s.length; i++) c ^= s.charCodeAt(i); return c; }
+function decodeFrame(line) {
+  line = line.trim();
+  if (line.length < 4 || line[0] !== "$") return null;
+  const star = line.lastIndexOf("*");
+  if (star < 0 || line.length - star < 3) return null;
+  const payload = line.slice(1, star);
+  const cs = parseInt(line.slice(star + 1, star + 3), 16);
+  if (isNaN(cs) || xorCs(payload) !== cs) return null;
+  return payload;
+}
+async function sendCmd(payload) {
+  if (!rxChar) return;
+  const frame = `$${payload}*${xorCs(payload).toString(16).toUpperCase().padStart(2, "0")}\n`;
+  addLog("tx", frame.trim());
+  const bytes = new TextEncoder().encode(frame);
+  for (let off = 0; off < bytes.length; off += 20) {
+    const chunk = bytes.slice(off, off + 20);
+    if (rxChar.properties.writeWithoutResponse) await rxChar.writeValueWithoutResponse(chunk);
+    else await rxChar.writeValue(chunk);
+  }
+}
+
+// ---------- BLE 연결 ----------
+$("btnConnect").addEventListener("click", async () => {
+  if (device && device.gatt.connected) { device.gatt.disconnect(); return; }
+  try {
+    device = await navigator.bluetooth.requestDevice({
+      filters: [{ services: [NUS_SVC] }, { namePrefix: "WB55" }],
+      optionalServices: [NUS_SVC],
+    });
+    device.addEventListener("gattserverdisconnected", onDisconnected);
+    setStatus("연결 중…", false);
+    const server = await device.gatt.connect();
+    const svc = await server.getPrimaryService(NUS_SVC);
+    rxChar = await svc.getCharacteristic(NUS_RX);
+    txChar = await svc.getCharacteristic(NUS_TX);
+    await txChar.startNotifications();
+    txChar.addEventListener("characteristicvaluechanged", onNotify);
+    setStatus(`연결됨: ${device.name || "(이름 없음)"}`, true);
+    $("btnConnect").textContent = "연결 해제";
+    $("btnRec").disabled = false;
+    $("btnPing").disabled = false;
+  } catch (e) {
+    if (e.name !== "NotFoundError") addLog("err", "연결 실패: " + e.message);
+    setStatus("연결 안 됨", false);
+  }
+});
+
+function onDisconnected() {
+  rxChar = txChar = null; lineBuf = "";
+  if (recording) stopRec();
+  setStatus("연결 끊김", false);
+  $("btnConnect").textContent = "BLE 연결";
+  $("btnRec").disabled = true;
+  $("btnPing").disabled = true;
+}
+function setStatus(msg, on) { $("status").textContent = msg; $("dot").classList.toggle("on", !!on); }
+
+// ---------- 수신 처리 ----------
+function onNotify(ev) {
+  const chunk = new TextDecoder().decode(ev.target.value);
+  lineBuf += chunk;
+  let nl;
+  while ((nl = lineBuf.indexOf("\n")) >= 0) {
+    const line = lineBuf.slice(0, nl).replace(/\r/g, "").trim();
+    lineBuf = lineBuf.slice(nl + 1);
+    if (line) handleLine(line);
+  }
+  if (lineBuf.length > 512) lineBuf = "";   // 폭주 방지
+}
+
+function handleLine(line) {
+  const isData = line.startsWith("$DATA,");
+  if (!isData || $("chkData").checked) addLog("rx", line);
+  const payload = decodeFrame(line);
+  if (payload === null) { addLog("err", "checksum/frame 오류: " + line); return; }
+  const parts = payload.split(",");
+  if (parts[0] !== "DATA") return;
+
+  const vals = parts.slice(1).map(Number);
+  if (vals.some(isNaN)) return;
+  const now = new Date();
+  const s = { t: now };
+
+  if (vals.length === 3) {          // $DATA,T0,T1,T2 — NTC 3채널 펌웨어
+    setMode("ntc3");
+    s.T1 = vals[0]; s.T2 = vals[1]; s.T3 = vals[2];
+  } else if (vals.length >= 7) {    // $DATA,p1,p2,p3,t1..t4 — 압력3 + NTC4 펌웨어
+    setMode("full7");
+    s.P1 = vals[0]; s.P2 = vals[1]; s.P3 = vals[2];
+    s.T1 = vals[3]; s.T2 = vals[4]; s.T3 = vals[5]; s.T4 = vals[6];
+  } else return;
+
+  samples.push(s);
+  if (samples.length > BUFFER) samples.shift();
+
+  $("vTime").textContent = now.toLocaleTimeString("ko-KR", { hour12: false });
+  for (const d of activeT) $("v" + d.key).innerHTML = s[d.key].toFixed(2) + " <small>°C</small>";
+  for (const d of activeP) $("v" + d.key).textContent = s[d.key];
+
+  if (recording) {
+    recRows.push([now.getTime() / 1000, now.toISOString(), ...recCols.map(k => s[k])].join(","));
+    $("recState").textContent = "● REC " + fmtDur((now - recStart) / 1000) + " · " + recRows.length + "행";
+  }
+  drawAll();
+  refreshTable();
+}
+
+function setMode(m) {
+  if (mode === m) return;
+  mode = m;
+  activeT = m === "ntc3" ? NTC_DEFS.slice(0, 3) : NTC_DEFS.slice(0, 4);
+  activeP = m === "full7" ? PRES_DEFS : [];
+  samples = [];
+  // 값 타일 구성
+  for (const d of [...activeP, ...activeT]) {
+    const el = document.createElement("div");
+    el.className = "tile";
+    el.innerHTML = `<div class="lbl"><span class="chip" style="background:var(${d.cssVar})"></span>${d.label}</div>
+                    <div class="val" id="v${d.key}">–</div>`;
+    $("tiles").appendChild(el);
+  }
+  $("tempCard").style.display = "";
+  $("presCard").style.display = activeP.length ? "" : "none";
+  buildLegend($("legT"), activeT);
+  if (activeP.length) buildLegend($("legP"), activeP);
+  buildTableHead();
+}
+function buildLegend(el, defs) {
+  el.innerHTML = defs.map(d =>
+    `<span class="item"><span class="chip" style="background:var(${d.cssVar})"></span>${d.label}</span>`).join("");
+}
+
+// ---------- 차트 ----------
+function makeChart(canvasId, tipId, getDefs, unitFmt) {
+  const cv = $(canvasId), tip = $(tipId), ctx = cv.getContext("2d");
+  let hoverX = null;
+
+  function draw() {
+    const defs = getDefs();
+    const dpr = window.devicePixelRatio || 1;
+    const w = cv.clientWidth, h = cv.clientHeight;
+    if (!w) return;
+    if (cv.width !== w * dpr) { cv.width = w * dpr; cv.height = h * dpr; }
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+    if (samples.length < 2 || !defs.length) return;
+
+    const padL = 42, padR = 8, padT = 8, padB = 20;
+    const pw = w - padL - padR, ph = h - padT - padB;
+    const t0 = samples[0].t.getTime(), t1 = samples[samples.length - 1].t.getTime();
+    const span = Math.max(t1 - t0, 1000);
+
+    let lo = Infinity, hi = -Infinity;
+    for (const s of samples) for (const d of defs) {
+      const v = s[d.key]; if (v == null) continue;
+      if (v < lo) lo = v; if (v > hi) hi = v;
+    }
+    if (!isFinite(lo)) return;
+    const padV = (hi - lo) * 0.1 || 0.5; lo -= padV; hi += padV;
+
+    const X = t => padL + (t - t0) / span * pw;
+    const Y = v => padT + (hi - v) / (hi - lo) * ph;
+
+    // 그리드 + y라벨
+    ctx.font = "10px system-ui"; ctx.fillStyle = cssColor("--muted");
+    ctx.strokeStyle = cssColor("--grid"); ctx.lineWidth = 1;
+    const ySteps = 4;
+    for (let i = 0; i <= ySteps; i++) {
+      const v = lo + (hi - lo) * i / ySteps, y = Y(v);
+      ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(w - padR, y); ctx.stroke();
+      ctx.textAlign = "right"; ctx.textBaseline = "middle";
+      ctx.fillText(unitFmt(v), padL - 5, y);
+    }
+    // x라벨
+    ctx.textAlign = "center"; ctx.textBaseline = "top";
+    for (let i = 0; i <= 3; i++) {
+      const t = t0 + span * i / 3;
+      ctx.fillText(new Date(t).toLocaleTimeString("ko-KR", { hour12: false }), X(t), h - padB + 5);
+    }
+    // 베이스라인
+    ctx.strokeStyle = cssColor("--axis");
+    ctx.beginPath(); ctx.moveTo(padL, padT + ph); ctx.lineTo(w - padR, padT + ph); ctx.stroke();
+
+    // 시리즈 (2px 라인)
+    for (const d of defs) {
+      ctx.strokeStyle = cssColor(d.cssVar); ctx.lineWidth = 2;
+      ctx.lineJoin = "round"; ctx.beginPath();
+      let started = false;
+      for (const s of samples) {
+        const v = s[d.key]; if (v == null) continue;
+        const x = X(s.t.getTime()), y = Y(v);
+        started ? ctx.lineTo(x, y) : (ctx.moveTo(x, y), started = true);
+      }
+      ctx.stroke();
+    }
+
+    // 크로스헤어 + 툴팁
+    if (hoverX !== null) {
+      let best = 0, bd = Infinity;
+      for (let i = 0; i < samples.length; i++) {
+        const d = Math.abs(X(samples[i].t.getTime()) - hoverX);
+        if (d < bd) { bd = d; best = i; }
+      }
+      const s = samples[best], x = X(s.t.getTime());
+      ctx.strokeStyle = cssColor("--axis"); ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(x, padT); ctx.lineTo(x, padT + ph); ctx.stroke();
+      for (const d of defs) {
+        if (s[d.key] == null) continue;
+        ctx.fillStyle = cssColor(d.cssVar);
+        ctx.beginPath(); ctx.arc(x, Y(s[d.key]), 3.5, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = cssColor("--surface"); ctx.lineWidth = 2; ctx.stroke();
+      }
+      tip.innerHTML = `<div class="t">${s.t.toLocaleTimeString("ko-KR", { hour12: false })}</div>` +
+        defs.map(d => `<div class="row"><span class="chip" style="background:var(${d.cssVar})"></span>${d.label} ${unitFmt(s[d.key])}</div>`).join("");
+      tip.style.display = "block";
+      const bw = tip.offsetWidth;
+      tip.style.left = Math.min(Math.max(x - bw / 2, 0), w - bw) + "px";
+      tip.style.top = "4px";
+    } else tip.style.display = "none";
+  }
+
+  cv.addEventListener("pointermove", e => { hoverX = e.offsetX; draw(); });
+  cv.addEventListener("pointerleave", () => { hoverX = null; draw(); });
+  return draw;
+}
+const drawT = makeChart("cvT", "tipT", () => activeT, v => v.toFixed(2));
+const drawP = makeChart("cvP", "tipP", () => activeP, v => String(Math.round(v)));
+function drawAll() { drawT(); if (activeP.length) drawP(); }
+window.addEventListener("resize", drawAll);
+new MutationObserver(drawAll).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+
+// ---------- 데이터 표 ----------
+function buildTableHead() {
+  $("tbl").querySelector("thead").innerHTML =
+    "<tr><th>시각</th>" + [...activeP, ...activeT].map(d => `<th>${d.label}</th>`).join("") + "</tr>";
+}
+function refreshTable() {
+  const rows = samples.slice(-20).reverse();
+  $("tbl").querySelector("tbody").innerHTML = rows.map(s =>
+    "<tr><td>" + s.t.toLocaleTimeString("ko-KR", { hour12: false }) + "</td>" +
+    [...activeP, ...activeT].map(d => `<td>${d.key[0] === "P" ? s[d.key] : s[d.key].toFixed(2)}</td>`).join("") +
+    "</tr>").join("");
+}
+
+// ---------- CSV 기록 ----------
+$("btnRec").addEventListener("click", () => recording ? stopRec() : startRec());
+function startRec() {
+  if (!mode) { addLog("err", "아직 데이터가 없습니다."); return; }
+  recCols = [...activeP, ...activeT].map(d => d.key);
+  recRows = ["epoch,iso8601," + recCols.join(",")];
+  recStart = new Date(); recording = true;
+  $("btnRec").textContent = "■ 기록 중지";
+  $("btnDl").disabled = true;
+  $("recState").className = "rec";
+}
+function stopRec() {
+  recording = false;
+  $("btnRec").textContent = "● 기록 시작";
+  $("btnDl").disabled = recRows.length <= 1;
+  $("recState").className = "";
+  $("recState").textContent = "기록 " + (recRows.length - 1) + "행 — 다운로드 가능";
+}
+$("btnDl").addEventListener("click", () => {
+  const name = "ntc_log_" + recStart.toISOString().replace(/[:T]/g, "-").slice(0, 19) + ".csv";
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([recRows.join("\n")], { type: "text/csv" }));
+  a.download = name; a.click();
+  URL.revokeObjectURL(a.href);
+});
+function fmtDur(sec) {
+  sec = Math.floor(sec);
+  const m = Math.floor(sec / 60), s = sec % 60;
+  return (m ? m + "m " : "") + s + "s";
+}
+
+// ---------- 기타 ----------
+$("btnPing").addEventListener("click", () => sendCmd("CMD,PING"));
+$("btnClr").addEventListener("click", () => $("log").innerHTML = "");
+function addLog(kind, text) {
+  const el = $("log");
+  const ts = new Date().toLocaleTimeString("ko-KR", { hour12: false });
+  const div = document.createElement("div");
+  div.innerHTML = `<span class="ts">${ts}</span> <span class="${kind}">[${kind.toUpperCase()}]</span> `;
+  div.appendChild(document.createTextNode(text));
+  el.appendChild(div);
+  while (el.childNodes.length > 300) el.removeChild(el.firstChild);
+  el.scrollTop = el.scrollHeight;
+}
+</script>
+
+</html>
